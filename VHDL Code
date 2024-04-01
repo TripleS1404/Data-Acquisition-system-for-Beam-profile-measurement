@@ -1,0 +1,955 @@
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.NUMERIC_STD.ALL;
+entity localcontroller1 is
+generic ( A_WID : integer := 8;
+ D_WID : integer := 16);
+Port ( clk : in STD_LOGIC;
+ch_addr : in STD_LOGIC_VECTOR (1 downto 0); 
+gr_addr : in STD_LOGIC_VECTOR (2 downto 0);
+sampled_addr1 : in STD_LOGIC_VECTOR (1 downto 0);
+data_group:in STD_LOGIC_VECTOR (2 downto 0);
+acq_addr : in STD_LOGIC_VECTOR (1 downto 0); 
+gr_addr1 : out STD_LOGIC_VECTOR (2 downto 0);
+sel : out STD_LOGIC_VECTOR (1 downto 0);
+ch_addr2adc: out STD_LOGIC_VECTOR (1 downto 0);
+acq_all : in STD_LOGIC;
+acq_sel : in STD_LOGIC;
+reset : in STD_LOGIC; 
+sampled_all: in std_logic;
+sampled_select:in std_logic;
+dataready : in STD_LOGIC;
+enable:out std_logic;
+start:out std_logic;
+latch_all : out STD_LOGIC;
+read_adc_data:out STD_LOGIC;
+adc_data_readsts:out STD_LOGIC;
+lc2_sts:in std_logic;
+lc1ch_addro:out STD_LOGIC_VECTOR (1 downto 0);
+lc1dat_gro:out STD_LOGIC_VECTOR (2 downto 0);
+lc1gr_addro:out STD_LOGIC_VECTOR (2 downto 0)
+ );
+end localcontroller1;
+architecture Behavioral of localcontroller1 is
+TYPE STATE_TYPE_CONV IS ( idle,acq_com,wfsampling,startadc,wfadcacq,lc2_stschk);
+SIGNAL next_state, state: STATE_TYPE_CONV;
+ signal ch_addrr : STD_LOGIC_VECTOR (1 downto 0);
+ signal grr : STD_LOGIC;
+ signal acq_al : STD_LOGIC;
+ signal acq_sell : STD_LOGIC;
+ signal datareadi : STD_LOGIC;
+ signal load_donne : STD_LOGIC;
+ signal sampled_addrr : STD_LOGIC_VECTOR (1 downto 0);
+ signal acq_addrr : STD_LOGIC_VECTOR (1 downto 0);
+ signal latchh : STD_LOGIC;
+ signal wrr : STD_LOGIC;
+ signal mem_addrr : STD_LOGIC_VECTOR (A_WID-1 downto 0); 
+SIGNAL GND : STD_LOGIC ;
+type count_range is range 0 to 10; -- user-defined integer data type
+ signal count : count_range := 0; -- signal of user-defined
+signal ch_count:natural:=0;
+begin
+ PROCESS (clk,reset)
+ BEGIN
+ if (reset = '1') then
+ next_state <= idle; -- next state enters the first state of the state machine
+ count<=0;
+ enable<='0';
+read_adc_data<='0';
+ ch_count<=0;
+lc1ch_addro<="ZZ";
+lc1dat_gro<="ZZZ";
+lc1gr_addro<="ZZZ";
+--adc_data_read<='0';
+adc_data_readsts<='0';
+elsif (clk'event and clk='1') then
+CASE state is
+ when idle=>
+count<=0;
+enable<='0';
+ch_count<=0;
+adc_data_readsts<='0';
+read_adc_data<='0';
+ if (acq_all='0' and acq_sel='0') then
+ next_state<=idle;
+ elsif (acq_all='0' and acq_sel='1') then
+ next_state<=acq_com;
+ elsif (acq_all='1' and acq_sel='0') then
+ next_state<=acq_com; 
+ elsif (acq_all='1' and acq_sel='1') then
+ next_state<=idle;
+ else next_state<=idle;
+ end if;
+when acq_com=>
+ enable<='1';
+ if (acq_all='0' and acq_sel='1') then
+ sel<=ch_addr;
+ latch_all<='0';
+ next_state<=wfsampling;
+ elsif (acq_all='1' and acq_sel='0') then
+ latch_all<='1'; 
+ if (ch_count<4)then
+ sel <= std_logic_vector(to_unsigned(ch_count,2)); 
+ ch_count<=ch_count+1; 
+ next_state<=wfsampling;
+ else ch_count<=0;
+ sel <= std_logic_vector(to_unsigned(ch_count,2)); 
+ next_state<=wfsampling; 
+ end if;
+ end if;
+When wfsampling=>
+if (sampled_all='1' and sampled_select='1') then
+ch_addr2adc<="ZZ";
+next_state<=wfsampling;
+elsif (sampled_all='1' and sampled_select='0') then
+ ch_addr2adc<=sampled_addr1;
+ next_state<=startadc;
+elsif (sampled_all='0' and sampled_select='1') then 
+ ch_addr2adc<=sampled_addr1;
+next_state<=startadc;
+elsif ( sampled_all='0' and sampled_select='0') then
+ ch_addr2adc<="ZZ";next_state<=wfsampling;
+else ch_addr2adc<="ZZ";next_state<=wfsampling;
+end if;
+when startadc =>
+ if (count < 2) then
+ count<=count+1;
+ start<='1';
+ next_state<=startadc;
+ else
+ start<='0';
+ count<=0;
+ next_state<=wfadcacq;
+end if;
+when wfadcacq =>
+if (dataready='0')then
+next_state<=wfadcacq;
+else 
+next_state<=lc2_stschk;
+end if;
+when lc2_stschk =>
+if (lc2_sts='0')then
+next_state<=lc2_stschk;
+else 
+lc1ch_addro<=acq_addr;
+lc1dat_gro<=data_group;
+lc1gr_addro<=gr_addr;
+read_adc_data<='1';
+adc_data_readsts<='1';
+next_state<=idle;
+end if;
+when others=> next_state<=idle;
+ end case;
+end if;
+END PROCESS;
+state<= next_state;
+end behavioral;
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.NUMERIC_STD.ALL;
+entity localcontroller2 is
+generic ( A_WID : integer := 8;
+ D_WID : integer := 16);
+ Port ( clk : in STD_LOGIC;
+ ch_addrin_lc1:in STD_LOGIC_VECTOR (1 downto 0);
+ dat_grin_lc1:in STD_LOGIC_VECTOR (2 downto 0);
+ gr_addrin_lc1:in STD_LOGIC_VECTOR (2 downto 0);
+ data_shift : out STD_LOGIC;
+ lc2_sts: out std_logic;
+ adc_data_readsts: in std_logic;
+read_adc_data:out std_logic;
+ data_shifted:in std_logic;
+ load:out std_logic;
+ reset : in STD_LOGIC; 
+ latch_data : out STD_LOGIC;
+ data_latched: in std_logic;
+ write_data:out STD_LOGIC;
+lc3_sts:in STD_LOGIC;
+load_done1:inout std_logic;
+lc2ch_addro:out STD_LOGIC_VECTOR (1 downto 0);
+lc2dat_gro:out STD_LOGIC_VECTOR (2 downto 0);
+lc2gr_addro:out STD_LOGIC_VECTOR (2 downto 0) 
+);
+end localcontroller2;
+architecture Behavioral of localcontroller2 is
+type count_range is range 0 to 10; -- user-defined integer data type
+ signal count : count_range := 0; -- signal of user-defined
+TYPE STATE_TYPE_CONV IS ( idle,load_com,shift_com,latch_com,datalatch_chk,mem_ready_chk);
+SIGNAL next_state, state: STATE_TYPE_CONV;
+SIGNAL GND : STD_LOGIC ;
+begin
+ PROCESS (clk,reset)
+ BEGIN
+ if (reset = '1') then
+ next_state <= idle; -- next state enters the first state of the state machine
+ count<=0;
+ data_shift<='0';
+ load<='1';
+lc2_sts<='1'; 
+ write_data<='0';
+elsif (clk'event and clk='1') then
+CASE state is
+when idle=>
+count<=0;
+data_shift<='0';
+load<='1';
+ write_data<='0';
+lc2_sts<='1'; 
+lc2ch_addro<=ch_addrin_lc1;
+lc2dat_gro<=dat_grin_lc1;
+lc2gr_addro<=gr_addrin_lc1; 
+if (adc_data_readsts='0')then
+next_state<= idle;
+else next_state<=load_com;
+lc2_sts<='0'; 
+ end if;
+WHEN load_com =>
+if (count < 5) then
+count<=count+1;
+load<='0';
+read_adc_data<='0';
+lc2_sts<='0';
+next_state<= load_com;
+else
+read_adc_data<='1';
+load<='1';
+next_state<= shift_com;
+count<=0;
+end if;
+when shift_com=>
+if (load_done1='0') then
+next_state<= shift_com;
+elsif (load_done1<='1') then
+data_shift<='1';
+next_state<= latch_com;
+else next_state<= shift_com;
+end if;
+WHEN latch_com =>
+ data_shift<='0';
+ if (data_shifted='0') then
+ latch_data<='0';
+ next_state<= latch_com;
+ else
+ latch_data<='1';
+ next_state<=idle;
+ end if;
+When datalatch_chk=>
+ if (data_latched='0') then
+ write_data<='0';
+ lc2_sts<='0';
+ next_state<= latch_com;
+ else
+write_data<='0';
+ next_state<=mem_ready_chk;
+ end if;
+When mem_ready_chk =>
+ if (lc3_sts='0') then 
+write_data<='0';
+lc2_sts<='0';
+ next_state<=mem_ready_chk;
+else
+lc2_sts<='1';
+write_data<='1';
+next_state<=idle;
+end if;
+when others=> next_state<=idle;
+ end case;
+end if;
+END PROCESS;
+state<=next_state;
+end behavioral;
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.NUMERIC_STD.ALL;
+entity localcontroller3 is
+generic ( A_WID : integer := 8;
+ D_WID : integer := 16);
+ Port ( clk : in STD_LOGIC;
+ ch_addrin_lc2:in STD_LOGIC_VECTOR (1 downto 0);
+ dat_grin_lc2:in STD_LOGIC_VECTOR (2 downto 0);
+ gr_addrin_lc2:in STD_LOGIC_VECTOR (2 downto 0); 
+ reset : in STD_LOGIC; 
+ ena_wr:out std_logic;
+write_data: in STD_LOGIC;
+lc3_sts:out std_logic;
+ acqcomplete:out std_logic;
+ wr : out STD_LOGIC;
+write_datasts: out std_logic;
+ ch_addr2mem:out STD_LOGIC_VECTOR (1 downto 0);
+ dat_gr2mem:out STD_LOGIC_VECTOR (2 downto 0);
+ gr_addr2mem: out STD_LOGIC_VECTOR (2 downto 0)
+ );
+end localcontroller3;
+architecture Behavioral of localcontroller3 is
+TYPE STATE_TYPE_CONV IS ( idle,mem_wr,acqdone);
+SIGNAL next_state, state: STATE_TYPE_CONV; 
+--SIGNAL GND : STD_LOGIC;
+type count_range is range 0 to 10; -- user-defined integer data type
+ signal count : count_range := 0; -- signal of user-defined
+begin
+ 
+PROCESS (clk,reset)
+begin
+ if (reset = '1') then
+ next_state <= idle; -- next state enters the first state of the state machine
+ count<=0;
+ ena_wr<='0';
+ acqcomplete<='0';
+ lc3_sts<='1';
+ elsif (clk'event and clk='1') then
+CASE state is
+ when idle=>
+count<=0;
+ena_wr<='0';
+acqcomplete<='0';
+ch_addr2mem<=ch_addrin_lc2;
+dat_gr2mem<=dat_grin_lc2;
+gr_addr2mem<=gr_addrin_lc2;
+lc3_sts<='1';
+if (write_data='0') then
+ next_state<=idle;
+else next_state<=mem_wr;
+end if;
+WHEN mem_wr =>
+ if (count < 4) then
+lc3_sts<='0';
+ write_datasts<='0';
+ count<=count+1;
+ ena_wr<='1'; 
+ else
+ ena_wr<='0';
+ count<=0;
+ end if;
+ next_state<=acqdone;
+ 
+WHEN acqdone =>
+ if (count < 2) then
+ write_datasts<='1';
+ count<=count+1;
+ lc3_sts<='1';
+ acqcomplete<='1';
+ next_state<=acqdone;
+ else
+ acqcomplete<='0';
+ write_datasts<='1';
+ count<=0;
+ next_state<= idle;
+ end if;
+when others=> next_state<=idle;
+ end case;
+end if;
+END PROCESS;
+state<=next_state;
+end behavioral;
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+use IEEE.NUMERIC_STD.ALL;
+entity AD7824interface is
+generic ( ad_bits : integer range 0 to 9:= 8);
+Port ( clk : in STD_LOGIC;
+ clk1 :inout STD_LOGIC;
+ sampled_addr : in STD_LOGIC_VECTOR (1 downto 0);
+ ch_sel: out STD_LOGIC_VECTOR (1 downto 0);--:= (others => 'Z') ;
+ acq_addr : out STD_LOGIC_VECTOR (1 downto 0);--:= (others => 'Z') ;
+ reset : in STD_LOGIC;
+ start:in std_logic;
+ ncs:out STD_LOGIC;--:='1';
+ data_ready:out std_logic;
+ nrd:inout STD_LOGIC;
+ read_adc_data:in std_logic;
+ nINT:in STD_LOGIC
+);
+end AD7824interface;
+architecture Behavioral of AD7824interface is
+TYPE STATE_TYPE_CONV IS ( waitforacq,set_adc_ch,start_conv, in_conv,read_conv,end_conv);
+SIGNAL next_state, state: STATE_TYPE_CONV;
+signal nncs:std_logic;--:='1';
+signal nnrd:std_logic;--:='1';
+SIGNAL GND : STD_LOGIC ;
+type count_range is range 0 to 15; -- user-defined integer data type
+ signal count :count_range:=0;
+begin
+adcinterface:PROCESS (clk,reset)
+ BEGIN
+ if (reset = '1') then
+next_state <= waitforacq; 
+count<=0;
+ncs<='1';
+nrd<='1';
+data_ready<='0';
+elsif (clk'event and clk='1') then
+ -- ch_sel<=sampled_addr;
+ -- acq_addr <=sampled_addr;
+CASE state is
+when waitforacq=>
+ ncs<='1';
+ nrd<='1';
+ if (start='1') then
+ next_state<= set_adc_ch;
+ else next_state<= waitforacq;
+ end if;
+ data_ready<='0';
+when set_adc_ch=> -- set channel address to ADC
+ ch_sel<=sampled_addr;
+ if (count<5) then
+ count<=count+1;
+ next_state<=set_adc_ch;
+ else next_state<= start_conv;
+ count<=0;
+ data_ready<='0';
+ end if;
+WHEN start_conv =>
+ ncs<='0';
+ nrd<='0';
+ acq_addr <=sampled_addr;
+ next_state<= in_conv;
+ data_ready<='0';
+WHEN in_conv =>
+ if ((nrd='0') and (nINT='1')) then --// ADC is in the middle of conversion
+ next_state<= in_conv; -- remain in the conversion state
+ data_ready<='0';
+ elsif ((nrd='0') and (nINT='0')) then 
+ next_state<= read_conv; -- read valid data
+ data_ready<='0';
+ elsif ((nrd='1') and (nINT='0')) then
+ next_state<= read_conv;
+ elsif ((nrd='1') and (nINT='1')) then
+ next_state<= in_conv; --
+ END IF;
+ -- count<=0;
+WHEN read_conv =>
+ -- count<=0;
+ data_ready<='1';
+ next_state<= end_conv ;
+WHEN end_conv =>
+ if (adc_data_read='0') then
+ next_state<= end_conv;
+ else
+ data_ready<='0';
+ ncs<='1';
+ nrd<='1';
+ next_state<= waitforacq;
+ end if;
+ END CASE;
+ END IF;
+ END PROCESS;
+state<= next_state;
+end Behavioral;
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+use ieee.std_logic_arith.all;
+use ieee.std_logic_unsigned.all;
+entity SHlatch4channel is
+generic ( s_init_val : std_logic := '0');
+ 
+ Port (
+ ch_sel : in STD_LOGIC_VECTOR(1 downto 0);
+ latch_all: in STD_LOGIC;
+ enable:in std_logic;
+ clk,reset: in STD_LOGIC;
+ sampled_all:out STD_LOGIC;--:=s_init_val;
+ sampled_select:out STD_LOGIC;--:=s_init_val;
+ sampled_addr:out STD_LOGIC_VECTOR (1 downto 0) ;
+ latched :out STD_LOGIC_VECTOR (3 downto 0) );
+end SHlatch4channel;
+architecture Behavioral of SHlatch4channel is 
+TYPE STATE_TYPE_CONV IS ( idle,acq_select,acq_all);
+SIGNAL next_state, state: STATE_TYPE_CONV;
+begin
+P1:PROCESS (clk,reset)
+ BEGIN
+if (reset='1') then
+sampled_all<='0';
+sampled_select<='0';
+sampled_addr<="ZZ";
+latched <="1111";-- no hold , sample all channels
+next_state<=idle;
+elsif (clk'event and clk='1') then
+ CASE state is
+when idle=>
+ --ch_count<=0;
+ if (enable='0') then
+sampled_all<='0';
+sampled_select<='0';
+sampled_addr<="ZZ";
+latched <="1111";
+next_state<= idle;
+elsif (enable='1') then
+ if (latch_all='0') then
+sampled_all<='0';
+sampled_select<='1';
+--ch_count<=0;
+case ch_sel is
+when "00"=>
+latched<="1110";
+sampled_addr<="00";
+when "01"=>
+latched<="1101";
+sampled_addr<="01";
+when "10"=>
+latched<="1011";
+sampled_addr<="10";
+when "11"=>
+latched <="0111";
+sampled_addr<="11";
+when others =>
+latched<="1111";
+sampled_all<='0';
+sampled_select<='0';
+sampled_addr<="ZZ";
+end case;
+next_state<=idle;
+else 
+sampled_all<='1';
+sampled_select<='0';
+--ch_count<=0;
+case ch_sel is
+when "00"=>
+latched<="0000";
+sampled_addr<="00";
+when "01"=>
+latched<="0000";
+sampled_addr<="01";
+when "10"=>
+latched<="0000";
+sampled_addr<="10";
+when "11"=>
+latched <="0000";
+sampled_addr<="11";
+when others =>
+latched<="0000";
+sampled_all<='0';
+sampled_select<='0';
+sampled_addr<="ZZ";
+end case;
+next_state<=idle; 
+end if;
+end if;
+when others=> null;
+ next_state<=idle;
+end case;
+state<=next_state;
+end if;
+end process;
+end;
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+use ieee.std_logic_arith.all;
+use ieee.std_logic_unsigned.all;
+entity serinpo is
+generic(n1 : integer range 0 to 8 := 7);
+ --outbitIV: std_logic := '0'
+ Port ( clk : in STD_LOGIC;
+ clk_out:inout std_logic;
+ sloclk_inhibit:out std_logic;--:= outbitIV;
+ reset : in STD_LOGIC;
+ load,data_shift : in STD_LOGIC;
+ latch : in STD_LOGIC;
+ data_shifted:out std_logic;--:= outbitIV;
+ data_latched : out STD_LOGIC;--:= outbitIV;
+ ser_data:in std_logic;
+ load_done1:out std_logic;--:= outbitIV;
+ par_data:out STD_LOGIC_VECTOR (n1 downto 0);--:= (others => '0');
+ parallel_data : out STD_LOGIC_VECTOR (n1 downto 0)--:= (others => '0')
+ );
+end entity serinpo;
+architecture Behavioral of serinpo is
+SIGNAL GND : STD_LOGIC ;
+TYPE STATE_TYPE_CONV IS ( idle,loadd,shiftt,latchh);
+SIGNAL next_state, state: STATE_TYPE_CONV;
+type count_range is range 0 to 10; -- user-defined integer data type
+signal count : count_range := 0; -- signal of user-defined integer data type
+signal r_data: std_logic_vector(7 downto 0):="00000000";
+signal r_count: integer range 0 to n1-1:=0;
+signal clkk_out: std_logic;
+begin
+PROCESS (clk,reset)
+BEGIN
+if (reset = '1') then
+count<=0;
+clkk_out<='0';
+elsif (clk'event and clk='1') then
+ if (count>1) then
+clk_out<='1';
+ count<=0;
+ else
+ count<=count+1;
+clk_out<='0';
+end if;
+ end if;
+end process;
+P1:PROCESS (clk,reset)
+ BEGIN
+if (reset = '1') then
+next_state <= idle; -- next state enters the first state of the state machine
+sloclk_inhibit<='1';
+load_done1<='0';
+data_shifted<='0';
+data_latched<='0';
+parallel_data<="00000000";
+par_data<="00000000";
+r_count<= 0;
+r_data<=(others=>'0');
+elsif (clk'event and clk='1') then
+ CASE state is
+when idle=>
+ r_count<= 0;
+ data_shifted<='0';
+ data_latched<='0';
+ sloclk_inhibit<='1';
+ r_data<=(others=>'0');
+ load_done1<='0';
+ if (load='1') then
+ next_state<= loadd;
+ elsif (load='0') then
+ next_state<= idle;
+ end if;
+WHEN loadd =>
+ load_done1<='1';
+ sloclk_inhibit<='1';
+ if(data_shift='1') then
+ next_state<=shiftt;
+ else next_state<=loadd;
+ end if;
+WHEN shiftt =>
+ sloclk_inhibit<='0';
+ r_data<= r_data(6 downto 0)&ser_data;
+ if(r_count>=7) then
+ r_count<= 0;
+ data_shifted<='1';
+ next_state<=latchh;
+ sloclk_inhibit<='1';
+ else
+ r_count<= r_count + 1;
+ data_shifted<='0';
+ sloclk_inhibit<='0';
+ next_state<=shiftt;
+ end if;
+WHEN latchh => 
+ sloclk_inhibit<='1';
+ if (latch='1') then
+ parallel_data<=r_data;
+ par_data<=r_data;
+ data_latched<='1';
+ next_state<=idle;
+ elsif (latch='0') then
+ data_latched<='0';
+ next_state<=latchh;
+ end if;
+when others=> null;
+ next_state<=idle;
+ sloclk_inhibit<='1';
+end case;
+end if;
+state<= next_state;
+END PROCESS P1;
+end Behavioral;
+library ieee;
+use ieee.std_logic_1164.all;
+use ieee.numeric_std.all;
+use ieee.std_logic_arith.all;
+use ieee.std_logic_unsigned.all;
+entity rams_sdp is generic (
+A_WID : integer range 0 to 9 := 8;
+D_WID : integer range 0 to 17:= 16
+);
+port (
+ clk : in std_logic;
+ ena_wr : in std_logic;
+ ena_rd : in std_logic;
+ ch_addr_mem:in STD_LOGIC_VECTOR (1 downto 0);
+ dat_gr_mem:in STD_LOGIC_VECTOR (2 downto 0);
+ gr_addr_mem:in STD_LOGIC_VECTOR (2 downto 0);
+ raddr : in std_logic_vector(A_WID-1 downto 0);
+ --waddr : inout std_logic_vector(A_WID-1 downto 0);
+ din : in std_logic_vector(D_WID-9 downto 0);
+ din1 : out std_logic_vector(D_WID-1 downto 0);--:= (others => '0') ;
+ dout : out std_logic_vector(D_WID-1 downto 0)--:= (others => '0') 
+);
+end rams_sdp;
+architecture arch of rams_sdp is
+constant RAM_SIZE:integer:=2**A_WID;
+type mem_array is array(0 TO RAM_SIZE-1) of std_logic_vector(D_WID-1 downto 0);
+signal ram : mem_array;
+signal waddrr: std_logic_vector(A_WID-1 downto 0);--:= (others => 'Z') ;
+signal raddrr: std_logic_vector(A_WID-1 downto 0);--:= (others => 'Z') ;
+signal fdata: std_logic_vector(D_WID-1 downto 0);--:= (others => '0') ;
+begin
+process(clk)
+begin
+if(clk'event and clk='1') then
+waddrr<=gr_addr_mem&dat_gr_mem&ch_addr_mem;
+--waddr<=waddrr;
+fdata<=waddrr&din;
+if(ena_wr = '1') then
+ram(conv_integer(waddrr))<= fdata;
+--din1<= din;
+else null;
+end if;
+end if;
+end process;
+process(clk)
+begin
+if(clk'event and clk='1') then
+raddrr<=raddr;
+ if(ena_rd = '1') then
+ dout<= ram(conv_integer(raddrr));
+ end if;
+end if;
+end process;
+end arch;
+library IEEE;
+use IEEE.STD_LOGIC_1164.ALL;
+use IEEE.STD_LOGIC_ARITH.ALL;
+use ieee.NUMERIC_STD.ALL;
+use IEEE.STD_LOGIC_UNSIGNED.ALL;
+entity lc_adc_sipo_struct1 is
+generic (A_WID: integer range 0 to 9:= 8;
+ D_WID: integer range 0 to 17:= 16;
+n1 : integer range 0 to 12:= 11
+);
+Port ( clk,reset,ena_rd,acq_all,acq_sel: in STD_LOGIC;
+ch_addr : in STD_LOGIC_VECTOR (1 downto 0);
+gr_addr : in STD_LOGIC_VECTOR (2 downto 0);
+data_group:in STD_LOGIC_VECTOR (2 downto 0);
+latched :out STD_LOGIC_VECTOR (3 downto 0);--:= (others => '1') ;
+ch_sel:out STD_LOGIC_VECTOR (1 downto 0);--:= (others => 'Z') ;
+ncs:out STD_LOGIC;--:= '1';
+nrd:inout STD_LOGIC;--:= '1';
+nINT:in STD_LOGIC;
+--acq_all : in STD_LOGIC;
+--acq_sel : in STD_LOGIC;
+clk_out:inout std_logic;
+clk1: inout std_logic;
+sloclk_inhibit:out std_logic;--:= '1';
+ser_data:in std_logic;
+raddr : in std_logic_vector(A_WID-1 downto 0);
+dout : out std_logic_vector(D_WID-1 downto 0);--:= (others => '0') ;
+din1 : out std_logic_vector(D_WID-1 downto 0);--:= (others => '0') ;
+par_data:out std_logic_vector(7 downto 0);--:= (others => '0') ;
+--waddr : inout std_logic_vector(A_WID-1 downto 0);--:= (others => 'Z') ;
+acqcomplete : out STD_LOGIC );--:= '1');
+end lc_adc_sipo_struct1;
+architecture structural of lc_adc_sipo_struct1 is
+component localcontroller1 is
+generic ( A_WID : integer := 8;
+ D_WID : integer := 16);
+Port ( clk : in STD_LOGIC;
+ch_addr : in STD_LOGIC_VECTOR (1 downto 0); 
+gr_addr : in STD_LOGIC_VECTOR (2 downto 0);
+sampled_addr1 : in STD_LOGIC_VECTOR (1 downto 0);
+data_group:in STD_LOGIC_VECTOR (2 downto 0);
+acq_addr : in STD_LOGIC_VECTOR (1 downto 0); 
+gr_addr1 : out STD_LOGIC_VECTOR (2 downto 0);
+ch_addr2adc: out STD_LOGIC_VECTOR (1 downto 0);
+sel : out STD_LOGIC_VECTOR (1 downto 0);
+acq_all : in STD_LOGIC;
+acq_sel : in STD_LOGIC;
+reset : in STD_LOGIC; 
+sampled_all: in std_logic;
+sampled_select:in std_logic;
+dataready : in STD_LOGIC;
+enable:out std_logic;
+start:out std_logic;
+latch_all : out STD_LOGIC;
+read_adc_data: out STD_LOGIC;
+adc_data_readsts:out STD_LOGIC;
+Lc2_sts:in std_logic;
+lc1ch_addro:out STD_LOGIC_VECTOR (1 downto 0);
+lc1dat_gro:out STD_LOGIC_VECTOR (2 downto 0);
+lc1gr_addro:out STD_LOGIC_VECTOR (2 downto 0)
+ );
+end component;
+component localcontroller2 is
+generic ( A_WID : integer := 8;
+ D_WID : integer := 16);
+ Port ( clk : in STD_LOGIC;
+ ch_addrin_lc1:in STD_LOGIC_VECTOR (1 downto 0);
+ dat_grin_lc1:in STD_LOGIC_VECTOR (2 downto 0);
+ gr_addrin_lc1:in STD_LOGIC_VECTOR (2 downto 0);
+ data_shift : out STD_LOGIC;
+ adc_dat_readsts: in std_logic;
+ data_shifted:in std_logic;
+ load:out std_logic;
+ reset : in STD_LOGIC; 
+ latch_data : out STD_LOGIC;
+ data_latched: in std_logic;
+write_data:out STD_LOGIC;
+lc3_sts:in STD_LOGIC;
+lc2_sts: out STD_LOGIC;
+load_done1:inout std_logic;
+lc2ch_addro:out STD_LOGIC_VECTOR (1 downto 0);
+lc2dat_gro:out STD_LOGIC_VECTOR (2 downto 0);
+lc2gr_addro:out STD_LOGIC_VECTOR (2 downto 0) 
+);
+end component;
+component localcontroller3 is
+generic ( A_WID : integer := 8;
+ D_WID : integer := 16);
+ Port ( clk : in STD_LOGIC;
+ ch_addrin_lc2:in STD_LOGIC_VECTOR (1 downto 0);
+ dat_grin_lc2:in STD_LOGIC_VECTOR (2 downto 0);
+ gr_addrin_lc2:in STD_LOGIC_VECTOR (2 downto 0);
+ reset : in STD_LOGIC; 
+ ena_wr:out std_logic;
+write_data: in std_logic;
+lc3_sts:out std_logic;
+ acqcomplete:out std_logic;
+ wr : out STD_LOGIC;
+ ch_addr2mem:out STD_LOGIC_VECTOR (1 downto 0);
+ dat_gr2mem:out STD_LOGIC_VECTOR (2 downto 0);
+ gr_addr2mem: out STD_LOGIC_VECTOR (2 downto 0)
+ );
+end component;
+component serinPO is
+generic(n1 : integer range 0 to 8 := 7);
+ --outbitIV: std_logic := '0'
+ Port ( clk : in STD_LOGIC;
+ clk_out:inout std_logic;
+ sloclk_inhibit:out std_logic;--:= outbitIV;
+ reset : in STD_LOGIC;
+ load,data_shift : in STD_LOGIC;
+ latch : in STD_LOGIC;
+ data_shifted:out std_logic;--:= outbitIV;
+ data_latched : out STD_LOGIC;--:= outbitIV;
+ ser_data:in std_logic;
+ load_done1:out std_logic;--:= outbitIV;
+ par_data:out STD_LOGIC_VECTOR (n1 downto 0);--:= (others => '0');
+ parallel_data : out STD_LOGIC_VECTOR (n1 downto 0)--:= (others => '0')
+ );
+end component;
+component SHlatch4channel is
+generic ( s_init_val : std_logic := '0');
+ 
+ Port (
+ ch_sel : in STD_LOGIC_VECTOR(1 downto 0);
+ latch_all: in STD_LOGIC;
+ enable:in std_logic;
+ clk,reset: in STD_LOGIC;
+ sampled_all:out STD_LOGIC;--:=s_init_val;
+ sampled_select:out STD_LOGIC;--:=s_init_val;
+ sampled_addr:out STD_LOGIC_VECTOR (1 downto 0) ;
+ latched :out STD_LOGIC_VECTOR (3 downto 0) );
+end component;
+component AD7824interface is
+generic ( ad_bits : integer range 0 to 9:= 8);
+Port ( clk : in STD_LOGIC;
+ clk1 :inout STD_LOGIC;
+ sampled_addr : in STD_LOGIC_VECTOR (1 downto 0);
+ ch_sel: out STD_LOGIC_VECTOR (1 downto 0);--:= (others => 'Z') ;
+ acq_addr : out STD_LOGIC_VECTOR (1 downto 0);--:= (others => 'Z') ;
+ reset : in STD_LOGIC;
+ start:in std_logic;
+ ncs:out STD_LOGIC;--:='1';
+ data_ready:out std_logic;
+ nrd:inout STD_LOGIC;
+ adc_data_read:in std_logic;
+ nINT:in STD_LOGIC
+);
+end component;
+component rams_sdp is
+ generic (
+A_WID : integer range 0 to 9 := 8;
+D_WID : integer range 0 to 17:= 16
+);
+port (
+ clk : in std_logic;
+ ena_wr : in std_logic;
+ ena_rd : in std_logic;
+ ch_addr_mem:in STD_LOGIC_VECTOR (1 downto 0);
+ dat_gr_mem:in STD_LOGIC_VECTOR (2 downto 0);
+ gr_addr_mem:in STD_LOGIC_VECTOR (2 downto 0);
+ raddr : in std_logic_vector(A_WID-1 downto 0);
+ --waddr : inout std_logic_vector(A_WID-1 downto 0);
+ din : in std_logic_vector(D_WID-9 downto 0);
+ din1 : out std_logic_vector(D_WID-1 downto 0);--:= (others => '0') ;
+ dout : out std_logic_vector(D_WID-1 downto 0)--:= (others => '0') 
+);
+end component;
+SIGNAL b,a,d,e,g,h,k,l,m,q,s,u,w,x,y,z,r1,r2:STD_LOGIC;
+SIGNAL c,f,i,f1,ch_addr_lc3tomem,ch_addr_lc1to2,ch_addr_lc2to3: std_logic_vector(1 downto 0); 
+SIGNAL j,r,dat_gr_lc3tomem,gr_addr_lc3tomem,dat_gr_lc1to2,gr_addr_lc1to2, 
+dat_gr_lc2to3,gr_addr_lc2to3: STD_LOGIC_VECTOR (2 downto 0);
+SIGNAL t : STD_LOGIC_VECTOR(7 downto 0); 
+--SIGNAL v:std_logic_vector(4 downto 0);
+begin
+U1:localcontroller1 PORT MAP(
+clk=>clk,
+reset=>reset,
+ch_addr=>ch_addr,
+gr_addr=>gr_addr,
+data_group=>data_group,
+acq_all=>acq_all,
+acq_sel=>acq_sel,
+dataready=>h,
+sampled_all=>e,
+sampled_select=>d,
+ch_addr2adc=>f1,
+sampled_addr1=>c,
+acq_addr=>i,
+latch_all=>a,
+enable=>b,
+start=>g,
+sel=>f,
+Lc2_sts=>r1,
+read_adc_data=>z,
+adc_data_readsts=>r2,
+lc1ch_addro=>ch_addr_lc1to2,
+lc1dat_gro=>dat_gr_lc1to2,
+lc1gr_addro=>gr_addr_lc1to2
+);
+U2:localcontroller2 PORT MAP(
+clk=>clk,
+lc2_ready=>r1,
+adc_data_readsts=>r2,
+reset=>reset,
+data_latched=>y,
+load=>l,
+data_shifted=>q,
+data_shift=>m,
+--acq_addr=>i,
+latch_data=>s,
+load_done1=>k,
+lc2ch_addro=>ch_addr_lc2to3,
+lc2dat_gro=>dat_gr_lc2to3,
+lc2gr_addro=>gr_addr_lc2to3,
+ch_addrin_lc1=>ch_addr_lc1to2,
+dat_grin_lc1=>dat_gr_lc1to2,
+gr_addrin_lc1=>gr_addr_lc1to2
+);
+U3:localcontroller3 PORT MAP(
+clk=>clk,
+reset=>reset,
+ena_wr=>x,
+acqcomplete=>acqcomplete,
+ch_addrin_lc2=>ch_addr_lc2to3,
+dat_grin_lc2=>dat_gr_lc2to3,
+gr_addrin_lc2=>gr_addr_lc2to3,
+ch_addr2mem=>ch_addr_lc3tomem,
+dat_gr2mem=>dat_gr_lc3tomem,
+gr_addr2mem=>gr_addr_lc3tomem
+);
+U4:SHlatch4channel PORT MAP(ch_sel=>f,latch_all=>a,enable=>b,clk=>clk,reset=>reset,
+ sampled_all=>e,sampled_select=>d,sampled_addr=>c,latched=>latched);
+U5:AD7824interface PORT MAP(clk=>clk,clk1=>clk1,sampled_addr=>f1,ch_sel=>ch_sel,acq_addr=>i,
+reset=>reset,start=>g,ncs=>ncs,data_ready=>h,read_adc_data=>z,nrd=>nrd,nINT=>nINT);
+U6:serinPO PORT 
+MAP(clk=>clk,clk_out=>clk_out,sloclk_inhibit=>sloclk_inhibit,reset=>reset,load=>l,data_shift=>m,
+latch=>s,data_shifted=>q,data_latched=>y,ser_data=>ser_data,
+load_done1=>k,parallel_data=>t,par_data=>par_data );
+U7:rams_sdp PORT 
+MAP(clk=>clk,ena_wr=>x,ena_rd=>ena_rd,raddr=>raddr,ch_addr_mem=>ch_addr_lc3tomem,
+dat_gr_mem=>dat_gr_lc3tomem,
+gr_addr_mem=>gr_addr_lc3tomem,
+din=>t,dout=>dout,din1=>din1);
+end structural;
